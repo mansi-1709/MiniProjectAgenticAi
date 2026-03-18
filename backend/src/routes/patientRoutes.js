@@ -4,6 +4,7 @@ import {
   getAllPatients,
   getPatientByPhone,
   getPatientMedicationHistory,
+  deletePatient,
 } from '../controllers/patientController.js';
 import { protect } from '../middleware/auth.js';
 
@@ -17,6 +18,9 @@ router.get('/', protect, getAllPatients);
 
 // GET /api/patients/phone/:phone - Get patient by phone (Protected)
 router.get('/phone/:phone', protect, getPatientByPhone);
+
+// DELETE /api/patients/:patientId - Delete patient (Protected)
+router.delete('/:patientId', protect, deletePatient);
 
 // GET /api/patients/:patientId/medication-history - Get patient medication history (Protected)
 router.get('/:patientId/medication-history', protect, getPatientMedicationHistory);

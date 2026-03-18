@@ -171,3 +171,39 @@ export const getPatientMedicationHistory = async (req, res) => {
     });
   }
 };
+
+// Delete a patient
+export const deletePatient = async (req, res) => {
+  try {
+    const { patientId } = req.params;
+
+    // Verify patient exists
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Patient not found',
+      });
+    }
+
+    // Delete the patient
+    await Patient.findByIdAndDelete(patientId);
+
+    res.json({
+      success: true,
+      message: `Patient ${patient.name} deleted successfully`,
+      deletedPatient: {
+        id: patient._id,
+        name: patient.name,
+        phone: patient.phone,
+      },
+    });
+  } catch (error) {
+    console.error('Delete Patient Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete patient',
+      error: error.message,
+    });
+  }
+};
