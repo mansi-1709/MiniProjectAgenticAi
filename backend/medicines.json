@@ -1,0 +1,98 @@
+[
+  {
+    "name": "Paracetamol",
+    "unit": "tablet",
+    "price": 5,
+    "stockQty": 100,
+    "minStockThreshold": 20,
+    "prescriptionRequired": false
+  },
+  {
+    "name": "Aspirin",
+    "unit": "tablet",
+    "price": 8,
+    "stockQty": 50,
+    "minStockThreshold": 15,
+    "prescriptionRequired": false
+  },
+  {
+    "name": "Amoxicillin",
+    "unit": "capsule",
+    "price": 15,
+    "stockQty": 30,
+    "minStockThreshold": 10,
+    "prescriptionRequired": true
+  },
+  {
+    "name": "Ibuprofen",
+    "unit": "tablet",
+    "price": 10,
+    "stockQty": 80,
+    "minStockThreshold": 25,
+    "prescriptionRequired": false
+  },
+  {
+    "name": "Cough Syrup",
+    "unit": "bottle",
+    "price": 120,
+    "stockQty": 15,
+    "minStockThreshold": 5,
+    "prescriptionRequired": false
+  },
+  {
+    "name": "Vitamin D",
+    "unit": "capsule",
+    "price": 12,
+    "stockQty": 60,
+    "minStockThreshold": 20,
+    "prescriptionRequired": false
+  },
+  {
+    "name": "Azithromycin",
+    "unit": "tablet",
+    "price": 25,
+    "stockQty": 40,
+    "minStockThreshold": 15,
+    "prescriptionRequired": true
+  },
+  {
+    "name": "Omeprazole",
+    "unit": "capsule",
+    "price": 18,
+    "stockQty": 55,
+    "minStockThreshold": 20,
+    "prescriptionRequired": false
+  },
+  {
+    "name": "Insulin",
+    "unit": "injection",
+    "price": 450,
+    "stockQty": 8,
+    "minStockThreshold": 5,
+    "prescriptionRequired": true
+  },
+  {
+    "name": "Cetirizine",
+    "unit": "tablet",
+    "price": 6,
+    "stockQty": 90,
+    "minStockThreshold": 30,
+    "prescriptionRequired": false
+  },
+  {
+    "name": "Metformin",
+    "unit": "tablet",
+    "price": 10,
+    "stockQty": 70,
+    "minStockThreshold": 25,
+    "prescriptionRequired": true
+  },
+  {
+    "name": "Ciprofloxacin",
+    "unit": "tablet",
+    "price": 20,
+    "stockQty": 35,
+    "minStockThreshold": 15,
+    "prescriptionRequired": true
+  }
+]

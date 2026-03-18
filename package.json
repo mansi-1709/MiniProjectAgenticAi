@@ -1,0 +1,14 @@
+{
+  "name": "agentic-ai-pharmacy",
+  "version": "1.0.0",
+  "description": "AI-powered pharmacy management system with OpenAI agents",
+  "scripts": {
+    "backend": "cd backend && npm run dev",
+    "frontend": "cd frontend && npm run dev",
+    "install-all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "seed": "cd backend && npm run seed"
+  },
+  "keywords": ["pharmacy", "ai", "openai", "agents", "mongodb"],
+  "author": "Your Name",
+  "license": "MIT"
+}
