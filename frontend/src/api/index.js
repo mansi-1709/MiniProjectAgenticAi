@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -44,6 +44,7 @@ export const patientAPI = {
   register: (data) => api.post('/patients', data),
   getAll: () => api.get('/patients'),
   getByPhone: (phone) => api.get(`/patients/phone/${phone}`),
+  delete: (patientId) => api.delete(`/patients/${patientId}`),
 };
 
 export const medicineAPI = {
@@ -51,6 +52,11 @@ export const medicineAPI = {
   getAll: () => api.get('/medicines'),
   getLowStock: () => api.get('/medicines/low-stock'),
   updateStock: (id, stockQty) => api.put(`/medicines/${id}`, { stockQty }),
+  adjustStock: (id, adjustment) => api.patch(`/medicines/${id}/adjust`, { adjustment }),
+};
+
+export const inventoryAgentAPI = {
+  processCommand: (message) => api.post('/inventory-agent/update', { message }),
 };
 
 export const orderAPI = {

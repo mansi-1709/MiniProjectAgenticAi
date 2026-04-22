@@ -14,6 +14,8 @@ const agentLogSchema = new mongoose.Schema({
       'InventoryRefillAgent',
       'NotificationAgent',
       'ObservabilityAgent',
+      'ConversationalPharmacistAgent',
+      'RecommendationAgent',
     ],
   },
   input: {

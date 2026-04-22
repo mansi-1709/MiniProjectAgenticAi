@@ -3,6 +3,7 @@ import {
   addMedicine,
   getAllMedicines,
   updateMedicineStock,
+  adjustMedicineStock,
   getLowStockMedicines,
 } from '../controllers/medicineController.js';
 import { protect, authorize } from '../middleware/auth.js';
@@ -18,7 +19,10 @@ router.get('/', protect, getAllMedicines);
 // GET /api/medicines/low-stock - Get low stock medicines (Protected)
 router.get('/low-stock', protect, getLowStockMedicines);
 
-// PUT /api/medicines/:id - Update medicine stock (Admin/Super Admin only)
-router.put('/:id', protect, authorize('admin', 'super_admin'), updateMedicineStock);
+// PUT /api/medicines/:id - Update stock (Admin + Pharmacist can do absolute set)
+router.put('/:id', protect, authorize('admin', 'super_admin', 'pharmacist'), updateMedicineStock);
+
+// PATCH /api/medicines/:id/adjust - Adjust stock by amount (pharmacist + admin)
+router.patch('/:id/adjust', protect, authorize('admin', 'super_admin', 'pharmacist'), adjustMedicineStock);
 
 export default router;

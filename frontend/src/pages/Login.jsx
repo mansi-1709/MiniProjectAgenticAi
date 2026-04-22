@@ -45,17 +45,16 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+    <div className="auth-shell">
+      <div className="auth-card">
         <div className="text-center mb-8">
-          <div className="text-6xl mb-4">🏥</div>
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">AI Pharmacy</h1>
-          <p className="text-gray-600">Sign in to your account</p>
+          <h1 className="section-title mb-2">Sign in</h1>
+          <p className="muted-text">Pharmacy Management System</p>
         </div>
 
         {error && (
-          <div className="mb-6 p-3 bg-red-50 border-l-4 border-red-500 rounded text-red-800 text-sm">
-            <p className="font-semibold mb-1">⚠️ Error</p>
+          <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-md text-red-800 text-sm">
+            <p className="font-semibold mb-1">Error</p>
             <p>{error}</p>
           </div>
         )}
@@ -71,8 +70,9 @@ export default function Login() {
               value={formData.email}
               onChange={handleChange}
               required
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="admin@pharmacy.com"
+              autoComplete="email"
+              className="input-field"
+              placeholder="superadmin@pharmacy.com"
             />
           </div>
 
@@ -87,7 +87,8 @@ export default function Login() {
                 value={formData.password}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-12"
+                autoComplete="current-password"
+                className="input-field pr-12"
                 placeholder="••••••••"
               />
               <button
@@ -112,7 +113,7 @@ export default function Login() {
           <div className="flex items-center justify-between text-sm">
             <Link 
               to="/forgot-password" 
-              className="text-blue-600 hover:text-blue-700 font-medium"
+              className="text-primary-700 hover:text-primary-800 font-medium"
             >
               Forgot password?
             </Link>
@@ -121,7 +122,7 @@ export default function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+            className="w-full bg-primary-700 text-white py-2.5 rounded-md font-semibold hover:bg-primary-800 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
@@ -130,7 +131,7 @@ export default function Login() {
         <div className="mt-6 text-center">
           <p className="text-gray-600 text-sm">
             Don't have an account?{' '}
-            <Link to="/register" className="text-blue-600 hover:text-blue-700 font-semibold">
+            <Link to="/register" className="text-primary-700 hover:text-primary-800 font-semibold">
               Sign Up
             </Link>
           </p>

@@ -134,10 +134,9 @@ export default function Register() {
 
   if (success) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md text-center">
-          <div className="text-6xl mb-4">✅</div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">Registration Successful!</h2>
+      <div className="auth-shell">
+        <div className="auth-card text-center">
+          <h2 className="text-2xl font-semibold text-slate-900 mb-4">Registration successful</h2>
           <p className="text-gray-600 mb-4">
             Your account has been created and is pending admin approval.
           </p>
@@ -151,17 +150,16 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+    <div className="auth-shell">
+      <div className="auth-card">
         <div className="text-center mb-8">
-          <div className="text-6xl mb-4">🏥</div>
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">Create Account</h1>
-          <p className="text-gray-600">Register as Doctor or Pharmacist</p>
+          <h1 className="section-title mb-2">Create account</h1>
+          <p className="muted-text">Register as doctor or pharmacist</p>
         </div>
 
         {error && (
-          <div className="mb-6 p-3 bg-red-50 border-l-4 border-red-500 rounded text-red-800 text-sm">
-            <p className="font-semibold mb-1">⚠️ Error</p>
+          <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-md text-red-800 text-sm">
+            <p className="font-semibold mb-1">Error</p>
             <p>{error}</p>
           </div>
         )}
@@ -175,10 +173,10 @@ export default function Register() {
               name="role"
               value={formData.role}
               onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="input-field"
             >
-              <option value="pharmacist">💊 Pharmacist</option>
-              <option value="admin">👨‍⚕️ Doctor/Admin</option>
+              <option value="pharmacist">Pharmacist</option>
+              <option value="admin">Doctor/Admin</option>
             </select>
             <p className="text-xs text-gray-500 mt-1">
               {formData.role === 'admin' 
@@ -197,7 +195,7 @@ export default function Register() {
               value={formData.name}
               onChange={handleChange}
               required
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="input-field"
               placeholder="John Doe"
             />
           </div>
@@ -212,7 +210,7 @@ export default function Register() {
               value={formData.email}
               onChange={handleChange}
               required
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="input-field"
               placeholder="john@pharmacy.com"
             />
           </div>
@@ -234,12 +232,12 @@ export default function Register() {
             />
             {phoneError && (
               <div className="mt-2 p-2 bg-amber-50 border-l-4 border-amber-400 rounded">
-                <p className="text-xs text-amber-800">⚠️ {phoneError}</p>
+                <p className="text-xs text-amber-800">{phoneError}</p>
               </div>
             )}
             {!phoneError && formData.phone && validatePhone(formData.phone) && (
               <div className="mt-2 p-2 bg-emerald-50 border-l-4 border-emerald-400 rounded">
-                <p className="text-xs text-emerald-800">✓ Valid phone number</p>
+                <p className="text-xs text-emerald-800">Valid phone number</p>
               </div>
             )}
           </div>
@@ -256,7 +254,7 @@ export default function Register() {
                 onChange={handleChange}
                 required
                 minLength={8}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-12"
+                className="input-field pr-12"
                 placeholder="e.g., MyPass@123"
               />
               <button
@@ -307,7 +305,7 @@ export default function Register() {
                 )}
                 {passwordStrength.score >= 5 && (
                   <div className="mt-2 p-2 bg-emerald-50 border-l-4 border-emerald-400 rounded">
-                    <p className="text-xs text-emerald-800">✓ Strong password!</p>
+                    <p className="text-xs text-emerald-800">Strong password</p>
                   </div>
                 )}
               </>
@@ -325,7 +323,7 @@ export default function Register() {
                 value={formData.confirmPassword}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-12"
+                className="input-field pr-12"
                 placeholder="Re-enter password"
               />
               <button
@@ -354,21 +352,21 @@ export default function Register() {
             )}
             {formData.confirmPassword && formData.password === formData.confirmPassword && (
               <div className="mt-2 p-2 bg-emerald-50 border-l-4 border-emerald-400 rounded">
-                <p className="text-xs text-emerald-800">✓ Passwords match</p>
+                <p className="text-xs text-emerald-800">Passwords match</p>
               </div>
             )}
           </div>
 
           <div className="mt-4 pt-4 border-t border-gray-200">
             <p className="text-xs text-gray-500 text-center">
-              ⚠️ All registrations require approval from Super Admin
+              All registrations require approval from Super Admin
             </p>
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed mt-6"
+            className="w-full bg-primary-700 text-white py-2.5 rounded-md font-semibold hover:bg-primary-800 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed mt-6"
           >
             {loading ? 'Creating Account...' : 'Register'}
           </button>
@@ -377,7 +375,7 @@ export default function Register() {
         <div className="mt-6 text-center">
           <p className="text-gray-600 text-sm">
             Already have an account?{' '}
-            <Link to="/login" className="text-blue-600 hover:text-blue-700 font-semibold">
+            <Link to="/login" className="text-primary-700 hover:text-primary-800 font-semibold">
               Sign In
             </Link>
           </p>

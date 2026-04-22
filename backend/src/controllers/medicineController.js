@@ -118,6 +118,41 @@ export const updateMedicineStock = async (req, res) => {
   }
 };
 
+// Adjust medicine stock (increment or decrement)
+export const adjustMedicineStock = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adjustment } = req.body; // positive = add, negative = subtract
+
+    if (adjustment === undefined || isNaN(adjustment)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Adjustment value is required (positive to add, negative to subtract)',
+      });
+    }
+
+    const medicine = await Medicine.findById(id);
+    if (!medicine) {
+      return res.status(404).json({ success: false, message: 'Medicine not found' });
+    }
+
+    const oldQty = medicine.stockQty;
+    medicine.stockQty = Math.max(0, oldQty + parseInt(adjustment));
+    await medicine.save();
+
+    res.json({
+      success: true,
+      message: `Stock adjusted by ${adjustment > 0 ? '+' : ''}${adjustment}. New stock: ${medicine.stockQty}`,
+      medicine,
+      oldQty,
+      newQty: medicine.stockQty,
+    });
+  } catch (error) {
+    console.error('Adjust Stock Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to adjust stock', error: error.message });
+  }
+};
+
 // Get low stock medicines
 export const getLowStockMedicines = async (req, res) => {
   try {

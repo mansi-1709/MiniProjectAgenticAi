@@ -8,12 +8,23 @@ import patientRoutes from './routes/patientRoutes.js';
 import medicineRoutes from './routes/medicineRoutes.js';
 import orderRoutes from './routes/orderRoutes.js';
 import logsRoutes from './routes/logsRoutes.js';
+import inventoryAgentRoutes from './routes/inventoryAgentRoutes.js';
 
 const app = express();
 
 // Middleware
 app.use(cors({
-  origin: config.frontendUrl,
+  origin: (origin, callback) => {
+    // Allow any localhost origin in development (handles port changes)
+    if (!origin || origin.startsWith('http://localhost') || origin === config.frontendUrl) {
+      return callback(null, true);
+    }
+    // In production, only allow the configured frontend URL
+    if (config.nodeEnv === 'production' && origin !== config.frontendUrl) {
+      return callback(new Error('Not allowed by CORS'));
+    }
+    callback(null, true);
+  },
   credentials: true,
 }));
 
@@ -41,6 +52,7 @@ app.use('/api/patients', patientRoutes);
 app.use('/api/medicines', medicineRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/logs', logsRoutes);
+app.use('/api/inventory-agent', inventoryAgentRoutes);
 
 // 404 handler
 app.use((req, res) => {

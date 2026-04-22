@@ -104,10 +104,9 @@ export default function ResetPassword() {
 
   if (success) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md text-center">
-          <div className="text-6xl mb-4">✅</div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">Password Reset Successful!</h2>
+      <div className="auth-shell">
+        <div className="auth-card text-center">
+          <h2 className="text-2xl font-semibold text-slate-900 mb-4">Password reset successful</h2>
           <p className="text-gray-600 mb-6">
             Your password has been successfully reset. You can now login with your new password.
           </p>
@@ -118,17 +117,16 @@ export default function ResetPassword() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+    <div className="auth-shell">
+      <div className="auth-card">
         <div className="text-center mb-8">
-          <div className="text-6xl mb-4">🔐</div>
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">Reset Password</h1>
-          <p className="text-gray-600">Enter your new password</p>
+          <h1 className="section-title mb-2">Reset password</h1>
+          <p className="muted-text">Enter your new password</p>
         </div>
 
         {error && (
-          <div className="mb-6 p-3 bg-red-50 border-l-4 border-red-500 rounded text-red-800 text-sm">
-            <p className="font-semibold mb-1">⚠️ Error</p>
+          <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-md text-red-800 text-sm">
+            <p className="font-semibold mb-1">Error</p>
             <p>{error}</p>
           </div>
         )}
@@ -145,7 +143,7 @@ export default function ResetPassword() {
                 value={formData.password}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-12"
+                className="input-field pr-12"
                 placeholder="e.g., MyPass@123"
               />
               <button
@@ -214,7 +212,7 @@ export default function ResetPassword() {
                 value={formData.confirmPassword}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-12"
+                className="input-field pr-12"
                 placeholder="Re-enter password"
               />
               <button
@@ -251,14 +249,14 @@ export default function ResetPassword() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+            className="w-full bg-primary-700 text-white py-2.5 rounded-md font-semibold hover:bg-primary-800 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
             {loading ? 'Resetting Password...' : 'Reset Password'}
           </button>
         </form>
 
         <div className="mt-6 text-center">
-          <Link to="/login" className="text-blue-600 hover:text-blue-700 font-semibold text-sm">
+          <Link to="/login" className="text-primary-700 hover:text-primary-800 font-semibold text-sm">
             ← Back to Login
           </Link>
         </div>

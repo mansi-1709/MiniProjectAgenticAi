@@ -212,6 +212,7 @@ IMPORTANT RULES:
 - Check medication history to avoid repetition
 - Provide clear dosage duration (e.g., "5 days", "7 days")
 - Include safety warnings
+- **SYMPTOM-FIRST RULE**: If the message is ONLY a medicine name or a vague request like "give me paracetamol" with NO mention of symptoms, conditions, or context, you MUST return conversationType: "needs_clarification" and ask what symptoms the patient is experiencing. Do NOT recommend or process the medicine without symptom context.
 
 BE PROFESSIONAL, HELPFUL, AND SAFETY-FOCUSED.
 

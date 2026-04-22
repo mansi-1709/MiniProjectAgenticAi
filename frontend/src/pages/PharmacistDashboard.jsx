@@ -1,670 +1,986 @@
-import { useState, useEffect } from 'react';
-import { patientAPI, orderAPI, medicineAPI, patientHistoryAPI } from '../api';
+import { useState, useEffect, useRef } from 'react';
+import { patientAPI, orderAPI, medicineAPI, patientHistoryAPI, inventoryAgentAPI } from '../api';
+import { useToast } from '../context/ToastContext';
 
-export default function PharmacistDashboard() {
-  const [selectedPatient, setSelectedPatient] = useState(null);
-  const [patients, setPatients] = useState([]);
-  const [lowStockAlerts, setLowStockAlerts] = useState([]);
-  const [message, setMessage] = useState('');
+// ─── Helpers ────────────────────────────────────────────────────────────────
+const toCurrency = (amount) => `₹${Number(amount || 0).toFixed(2)}`;
+const formatTime = (ts) =>
+  new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const formatDate = (ts) =>
+  new Date(ts).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+const isPatientDetailQuery = (text) => {
+  const n = text.toLowerCase();
+  return (
+    n.includes('patient detail') || n.includes('patient details') ||
+    n.includes('details of patient') || n.includes('show patient') ||
+    n.includes('patient info') || n.includes('patient information')
+  );
+};
+
+const isMedicineOnlyRequest = (text) => {
+  const n = text.toLowerCase().trim();
+  const symptomWords = [
+    'fever', 'pain', 'headache', 'cough', 'cold', 'symptom', 'hurt', 'ache',
+    'infection', 'allergy', 'sore', 'nausea', 'vomit', 'dizzy', 'rash',
+    'bleeding', 'itching', 'swelling', 'diarrhea', 'loose motion', 'stomach',
+    'bp', 'sugar', 'diabetes', 'pressure', 'last time', 'previous', 'same medicine',
+    'history', 'prescription', 'doctor', 'have been', 'suffering', 'feeling',
+    'for days', 'for hours', 'since',
+  ];
+  if (symptomWords.some((w) => n.includes(w))) return false;
+  const actionWords = ['give', 'provide', 'need', 'want', 'get', 'buy', 'order'];
+  const hasAction = actionWords.some((w) => n.startsWith(w) || n.includes(w));
+  return hasAction && n.split(/\s+/).length <= 5;
+};
+
+const SYMPTOM_ASK_MSG =
+  "Before I recommend a medicine, could you tell me the patient's symptoms? (e.g., fever, headache, cough) This helps me give the safest recommendation.";
+
+// ─── Avatar ──────────────────────────────────────────────────────────────────
+function Avatar({ name, size = 'md' }) {
+  const colors = [
+    'bg-violet-500', 'bg-blue-500', 'bg-emerald-500', 'bg-amber-500',
+    'bg-rose-500', 'bg-cyan-500', 'bg-fuchsia-500', 'bg-orange-500',
+  ];
+  const color = colors[(name?.charCodeAt(0) || 0) % colors.length];
+  const sizeClass = size === 'lg'
+    ? 'w-14 h-14 text-xl'
+    : size === 'sm' ? 'w-7 h-7 text-xs' : 'w-9 h-9 text-sm';
+  return (
+    <div className={`${color} ${sizeClass} rounded-full flex items-center justify-center text-white font-bold flex-shrink-0`}>
+      {name?.[0]?.toUpperCase() || '?'}
+    </div>
+  );
+}
+
+// ─── Stock Update Modal ──────────────────────────────────────────────────────
+function StockModal({ medicine, onClose, onSuccess }) {
+  const [mode, setMode] = useState('adjust');
+  const [value, setValue] = useState('');
   const [loading, setLoading] = useState(false);
-  const [response, setResponse] = useState(null);
-  const [bill, setBill] = useState(null);
-  const [showPatientForm, setShowPatientForm] = useState(false);
-  const [recommendations, setRecommendations] = useState(null);
-  const [patientHistory, setPatientHistory] = useState([]);
-  const [showHistory, setShowHistory] = useState(false);
+  const showToast = useToast();
 
-  // Form states
-  const [patientForm, setPatientForm] = useState({
-    name: '',
-    phone: '',
-    age: '',
-  });
-  const [searchPhone, setSearchPhone] = useState('');
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const num = parseInt(value);
+    if (isNaN(num) || num < 0) { showToast('Enter a valid non-negative number.', 'warning'); return; }
+    setLoading(true);
+    try {
+      if (mode === 'adjust') {
+        await medicineAPI.adjustStock(medicine._id, num);
+        showToast(`+${num} added to ${medicine.name} stock.`, 'success');
+      } else {
+        await medicineAPI.updateStock(medicine._id, num);
+        showToast(`${medicine.name} stock set to ${num}.`, 'success');
+      }
+      onSuccess(); onClose();
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Failed to update stock.', 'error');
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="modal-panel bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-slate-900 mb-1">Update Stock</h3>
+        <p className="text-sm text-slate-500 mb-4">
+          <span className="font-semibold text-slate-700">{medicine.name}</span> — current:{' '}
+          <span className="font-bold text-primary-700">{medicine.stockQty}</span>
+        </p>
+        <div className="flex rounded-lg overflow-hidden border border-slate-200 mb-4">
+          <button type="button" onClick={() => setMode('adjust')}
+            className={`flex-1 py-2 text-sm font-semibold transition-colors ${mode === 'adjust' ? 'bg-primary-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+            ➕ Add Stock
+          </button>
+          <button type="button" onClick={() => setMode('set')}
+            className={`flex-1 py-2 text-sm font-semibold transition-colors ${mode === 'set' ? 'bg-primary-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+            ✏️ Set Quantity
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <input type="number" min="0" className="input-field text-lg font-semibold"
+            placeholder={mode === 'adjust' ? 'Quantity to add (e.g. 50)' : 'New total quantity'}
+            value={value} onChange={(e) => setValue(e.target.value)} autoFocus required />
+          <p className="text-xs text-slate-500">
+            {mode === 'adjust'
+              ? `New stock: ${medicine.stockQty} + ${value || 0} = ${medicine.stockQty + (parseInt(value) || 0)}`
+              : `Will replace: ${medicine.stockQty} → ${value || 0}`}
+          </p>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+            <button type="submit" className="btn-primary flex-1" disabled={loading}>{loading ? 'Saving…' : 'Save'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Patient Detail Panel ────────────────────────────────────────────────────
+function PatientDetailPanel({ patient, onBack, onLoadToChat, onDelete }) {
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const showToast = useToast();
 
   useEffect(() => {
-    fetchPatients();
-    fetchLowStock();
-  }, []);
+    const load = async () => {
+      setLoading(true);
+      try {
+        const res = await patientHistoryAPI.getMedicationHistory(patient._id);
+        setHistory(res.data.medicationHistory || []);
+      } catch { setHistory([]); }
+      finally { setLoading(false); }
+    };
+    load();
+  }, [patient._id]);
 
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await patientAPI.delete(patient._id);
+      showToast(`Patient "${patient.name}" deleted successfully.`, 'success');
+      onDelete();
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Failed to delete patient.', 'error');
+      setConfirmDelete(false);
+    } finally { setDeleting(false); }
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto hide-scrollbar p-5">
+      {/* Back + Actions */}
+      <div className="flex items-center justify-between mb-5">
+        <button onClick={onBack}
+          className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 font-medium transition-colors">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+          </svg>
+          All Patients
+        </button>
+        <div className="flex items-center gap-2">
+          {!confirmDelete ? (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors font-medium"
+            >
+              🗑️ Delete
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5">
+              <span className="text-xs text-red-700 font-medium">Delete {patient.name}?</span>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="text-xs px-2 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 font-semibold"
+              >
+                {deleting ? 'Deleting…' : 'Yes, delete'}
+              </button>
+              <button onClick={() => setConfirmDelete(false)} className="text-xs px-2 py-1 bg-white border border-slate-200 text-slate-600 rounded-md hover:bg-slate-50">
+                Cancel
+              </button>
+            </div>
+          )}
+          <button
+            onClick={() => onLoadToChat(patient)}
+            className="btn-primary text-sm flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            Load to Chat
+          </button>
+        </div>
+      </div>
+
+      {/* Patient Card */}
+      <div className="rounded-2xl bg-gradient-to-br from-primary-600 to-primary-800 text-white p-5 mb-5">
+        <div className="flex items-center gap-4">
+          <div className="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center text-2xl font-bold">
+            {patient.name[0].toUpperCase()}
+          </div>
+          <div className="flex-1">
+            <h2 className="text-xl font-bold">{patient.name}</h2>
+            <p className="text-primary-200 text-sm mt-0.5">{patient.phone}</p>
+            <div className="flex items-center gap-3 mt-2">
+              <span className="bg-white/20 px-3 py-0.5 rounded-full text-xs font-medium">
+                Age: {patient.age} years
+              </span>
+              <span className="bg-white/20 px-3 py-0.5 rounded-full text-xs font-medium">
+                {history.length} visit{history.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats Row */}
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 text-center">
+          <p className="text-2xl font-bold text-primary-600">{history.length}</p>
+          <p className="text-xs text-slate-500 mt-1">Total Visits</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4 text-center">
+          <p className="text-2xl font-bold text-emerald-600">
+            {toCurrency(history.reduce((s, e) => s + (e.totalAmount || 0), 0))}
+          </p>
+          <p className="text-xs text-slate-500 mt-1">Total Spent</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4 text-center">
+          <p className="text-2xl font-bold text-amber-600">
+            {history.length > 0 ? formatDate(history[0].date).split(' ')[0] + ' ' + formatDate(history[0].date).split(' ')[1] : '—'}
+          </p>
+          <p className="text-xs text-slate-500 mt-1">Last Visit</p>
+        </div>
+      </div>
+
+      {/* Medication History */}
+      <div>
+        <h3 className="text-base font-bold text-slate-900 mb-3 flex items-center gap-2">
+          📋 Medication History
+          <span className="text-sm font-normal text-slate-400">({history.length} records)</span>
+        </h3>
+
+        {loading ? (
+          <div className="flex justify-center py-10"><div className="spinner" /></div>
+        ) : history.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-200 p-10 text-center">
+            <p className="text-3xl mb-2">📭</p>
+            <p className="text-slate-500 text-sm">No medication history found for this patient.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {history.map((entry, i) => (
+              <div key={i} className="rounded-xl border border-slate-200 bg-white p-4 hover:shadow-sm transition-shadow">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-primary-50 text-primary-600 flex items-center justify-center text-xs font-bold">
+                      #{history.length - i}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{formatDate(entry.date)}</p>
+                      <p className="text-xs text-slate-400">{(entry.medicines || []).length} medicine{(entry.medicines || []).length !== 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
+                  <span className="text-sm font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full">
+                    {toCurrency(entry.totalAmount)}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(entry.medicines || []).map((med, j) => (
+                    <span key={j} className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 text-slate-700 text-xs px-3 py-1.5 rounded-full font-medium">
+                      💊 {med.name}
+                      {med.quantity && <span className="text-slate-400">× {med.quantity}</span>}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Patients Tab ────────────────────────────────────────────────────────────
+function PatientsTab({ patients, onLoadToChat, loadingPatients, onRefresh }) {
+  const [search, setSearch] = useState('');
+  const [selectedPatient, setSelectedPatient] = useState(null);
+
+  const filtered = patients.filter(
+    (p) =>
+      p.name.toLowerCase().includes(search.toLowerCase()) ||
+      (p.phone || '').includes(search)
+  );
+
+  if (selectedPatient) {
+    return (
+      <PatientDetailPanel
+        patient={selectedPatient}
+        onBack={() => setSelectedPatient(null)}
+        onLoadToChat={(pt) => { onLoadToChat(pt); setSelectedPatient(null); }}
+        onDelete={() => { setSelectedPatient(null); onRefresh(); }}
+      />
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto hide-scrollbar p-5">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5 gap-3">
+        <div>
+          <h2 className="text-base font-bold text-slate-900">All Patients</h2>
+          <p className="text-sm text-slate-500">{patients.length} registered patients</p>
+        </div>
+        <input
+          type="text"
+          placeholder="Search by name or phone…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="input-field text-sm w-56"
+        />
+      </div>
+
+      {loadingPatients ? (
+        <div className="flex justify-center py-12"><div className="spinner" /></div>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-200 p-12 text-center">
+          <p className="text-3xl mb-2">🔍</p>
+          <p className="text-slate-500 text-sm">No patients match your search.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {filtered.map((pt) => (
+            <button
+              key={pt._id}
+              type="button"
+              onClick={() => setSelectedPatient(pt)}
+              className="text-left rounded-xl border border-slate-200 bg-white p-4 hover:border-primary-300 hover:shadow-md hover:-translate-y-0.5 transition-all group"
+            >
+              <div className="flex items-center gap-3">
+                <Avatar name={pt.name} size="md" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-slate-900 truncate group-hover:text-primary-700 transition-colors">
+                    {pt.name}
+                  </p>
+                  <p className="text-xs text-slate-500">{pt.phone || 'No phone'}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Age: {pt.age} years</p>
+                </div>
+                <svg className="w-4 h-4 text-slate-300 group-hover:text-primary-400 transition-colors flex-shrink-0"
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </div>
+              <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-xs text-slate-400">
+                  Since {new Date(pt.createdAt).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
+                </span>
+                <span className="text-xs text-primary-600 font-medium group-hover:underline">
+                  View History →
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Component ──────────────────────────────────────────────────────────
+export default function PharmacistDashboard() {
+  const showToast = useToast();
+
+  const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'patients' | 'inventory'
+
+  // Patient state
+  const [patients, setPatients] = useState([]);
+  const [patientsLoading, setPatientsLoading] = useState(false);
+  const [showRegisterForm, setShowRegisterForm] = useState(false);
+  const [registeringPatient, setRegisteringPatient] = useState(false);
+  const [patientForm, setPatientForm] = useState({ name: '', phone: '', age: '' });
+  const [searchPhone, setSearchPhone] = useState('');
+  const [selectedPatient, setSelectedPatient] = useState(null);
+
+  // Inventory state
+  const [medicines, setMedicines] = useState([]);
+  const [lowStockAlerts, setLowStockAlerts] = useState([]);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [stockModal, setStockModal] = useState(null);
+  const [inventorySearch, setInventorySearch] = useState('');
+
+  // AI Inventory Agent state
+  const [agentQuery, setAgentQuery] = useState('');
+  const [agentProcessing, setAgentProcessing] = useState(false);
+  const [agentHistory, setAgentHistory] = useState([]);
+  const agentEndRef = useRef(null);
+
+  // Chat state
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [bill, setBill] = useState(null);
+  const [recommendations, setRecommendations] = useState(null);
+  const [chatMessages, setChatMessages] = useState([
+    {
+      id: 1, role: 'assistant',
+      text: 'Welcome to PharmaBooks. Load a patient by phone number, then describe symptoms or ask for medicines.',
+      timestamp: new Date().toISOString(),
+    },
+  ]);
+  const messageEndRef = useRef(null);
+
+  useEffect(() => { fetchPatients(); fetchLowStock(); }, []);
+  useEffect(() => { messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMessages]);
+  useEffect(() => { agentEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [agentHistory]);
+  useEffect(() => { if (activeTab === 'inventory') fetchAllMedicines(); }, [activeTab]);
+
+  // ── Data Fetchers ────────────────────────────────────────────────────────
   const fetchPatients = async () => {
+    setPatientsLoading(true);
     try {
       const res = await patientAPI.getAll();
       setPatients(res.data.patients || []);
-    } catch (error) {
-      console.error('Error fetching patients:', error);
-    }
+    } catch { setPatients([]); }
+    finally { setPatientsLoading(false); }
   };
 
   const fetchLowStock = async () => {
     try {
       const res = await medicineAPI.getLowStock();
-      setLowStockAlerts(res.data.medicines || []);
-    } catch (error) {
-      console.error('Error fetching low stock:', error);
+      const list = res.data.medicines || [];
+      setLowStockAlerts(list);
+      if (list.length > 0) {
+        showToast(`⚠️ ${list.length} medicine${list.length > 1 ? 's are' : ' is'} running low on stock.`, 'warning', 5000);
+      }
+    } catch { /* non-critical */ }
+  };
+
+  const fetchAllMedicines = async () => {
+    setInventoryLoading(true);
+    try {
+      const res = await medicineAPI.getAll();
+      setMedicines(res.data.medicines || []);
+    } catch { showToast('Failed to load inventory.', 'error'); }
+    finally { setInventoryLoading(false); }
+  };
+
+  // ── Chat Helpers ─────────────────────────────────────────────────────────
+  const appendMessage = (role, text) => {
+    setChatMessages((prev) => [...prev, { id: Date.now() + Math.random(), role, text, timestamp: new Date().toISOString() }]);
+  };
+
+  const formatPatientSummary = () => {
+    if (!selectedPatient) return 'No patient selected.';
+    return [
+      `Patient Name: ${selectedPatient.name}`,
+      `Phone: ${selectedPatient.phone}`,
+      `Age: ${selectedPatient.age}`,
+      'For full medication history, go to the Patients tab.',
+    ].join('\n');
+  };
+
+  const handleLoadPatient = async () => {
+    if (!searchPhone || searchPhone.length !== 10) {
+      showToast('Enter a valid 10-digit phone number.', 'warning'); return;
     }
+    setLoading(true);
+    try {
+      const res = await patientAPI.getByPhone(searchPhone);
+      const patient = res.data.patient;
+      setSelectedPatient(patient);
+      setBill(null); setRecommendations(null);
+      showToast(`Patient loaded: ${patient.name}`, 'success');
+      appendMessage('assistant', `Patient loaded: ${patient.name} (${patient.phone}). Describe symptoms to get started.`);
+    } catch {
+      showToast('Patient not found for this phone number.', 'error');
+      appendMessage('assistant', 'Patient not found. Check the number or register a new patient.');
+      setSelectedPatient(null);
+    } finally { setLoading(false); }
+  };
+
+  // Load patient from Patients tab → switch to Chat
+  const handleLoadPatientToChat = async (patient) => {
+    setSelectedPatient(patient);
+    setBill(null); setRecommendations(null);
+    setSearchPhone(patient.phone || '');
+    showToast(`${patient.name} loaded to chat.`, 'success');
+    appendMessage('assistant', `Patient loaded: ${patient.name} (${patient.phone}). Describe symptoms to get started.`);
+    setActiveTab('chat');
   };
 
   const handleRegisterPatient = async (e) => {
     e.preventDefault();
+    if (!patientForm.name || !patientForm.phone || !patientForm.age) {
+      showToast('Fill in name, phone and age.', 'warning'); return;
+    }
+    setRegisteringPatient(true);
     try {
-      const res = await patientAPI.register(patientForm);
-      alert(res.data.message);
+      const res = await patientAPI.register({
+        name: patientForm.name, phone: patientForm.phone, age: Number(patientForm.age),
+      });
+      appendMessage('assistant', res.data?.message || 'Patient registered successfully.');
+      showToast('Patient registered successfully.', 'success');
       setPatientForm({ name: '', phone: '', age: '' });
-      setShowPatientForm(false);
-      fetchPatients();
-    } catch (error) {
-      alert(error.response?.data?.message || 'Error registering patient');
-    }
+      setShowRegisterForm(false);
+      await fetchPatients();
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Unable to register patient.', 'error');
+    } finally { setRegisteringPatient(false); }
   };
 
-  const handleSearchPatient = async () => {
+  const handleSelectRecommendation = async (medicineName, quantity = 1) => {
+    if (!selectedPatient) return;
+    setLoading(true);
+    appendMessage('user', `Give ${quantity} ${medicineName}`);
     try {
-      const res = await patientAPI.getByPhone(searchPhone);
-      setSelectedPatient(res.data.patient);
-      setResponse(null);
-      setBill(null);
-      setPatientHistory([]);
-      setShowHistory(false);
-      // Load patient medication history
-      loadPatientHistory(res.data.patient._id);
-    } catch (error) {
-      alert('Patient not found');
-    }
-  };
-
-  const loadPatientHistory = async (patientId) => {
-    try {
-      const res = await patientHistoryAPI.getMedicationHistory(patientId);
-      setPatientHistory(res.data.medicationHistory || []);
-      setShowHistory(true);
-    } catch (error) {
-      console.error('Error loading patient history:', error);
-      setPatientHistory([]);
-      setShowHistory(true);
-    }
+      const res = await orderAPI.processChat({ message: `Give ${quantity} ${medicineName}`, patientId: selectedPatient._id });
+      const data = res.data;
+      appendMessage('assistant', data.message || 'Request processed.');
+      if (data.status === 'APPROVED' && data.bill) {
+        setBill(data.bill); setRecommendations(null);
+        showToast('Order approved! Bill generated.', 'success');
+      }
+      await fetchLowStock();
+    } catch (err) {
+      showToast('Unable to process recommendation.', 'error');
+      appendMessage('assistant', err.response?.data?.message || 'Unable to process recommendation.');
+    } finally { setLoading(false); }
   };
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
+    const input = message.trim();
+    if (!input) return;
+    appendMessage('user', input);
+    setMessage('');
+
     if (!selectedPatient) {
-      alert('Please select a patient first');
+      showToast('Load a patient first.', 'warning');
+      appendMessage('assistant', 'Please load a patient using their phone number before sending requests.');
       return;
     }
+    if (isPatientDetailQuery(input)) { appendMessage('assistant', formatPatientSummary()); return; }
+    if (isMedicineOnlyRequest(input)) { appendMessage('assistant', SYMPTOM_ASK_MSG); return; }
 
-    setLoading(true);
-    setResponse(null);
-    setBill(null);
-    setRecommendations(null);
-
+    setLoading(true); setBill(null); setRecommendations(null);
     try {
-      // Use the new conversational endpoint
-      const res = await orderAPI.processConversational({
-        message,
-        patientId: selectedPatient._id,
-      });
-
-      setResponse(res.data);
-      
-      // Handle recommendations
-      if (res.data.status === 'RECOMMENDATION_NEEDED') {
-        setRecommendations(res.data.recommendations);
-      } else if (res.data.status === 'APPROVED') {
-        setBill(res.data.bill);
+      const res = await orderAPI.processConversational({ message: input, patientId: selectedPatient._id });
+      const data = res.data;
+      appendMessage('assistant', data.message || 'Request processed.');
+      if (data.status === 'RECOMMENDATION_NEEDED') {
+        setRecommendations(data.recommendations || null);
+        showToast('AI recommendations ready.', 'info');
       }
-      
-      setMessage('');
-      fetchLowStock(); // Refresh low stock alerts
-    } catch (error) {
-      setResponse({
-        success: false,
-        message: error.response?.data?.message || 'Error processing order',
-        status: 'ERROR',
-      });
-    } finally {
-      setLoading(false);
-    }
+      if (data.status === 'APPROVED' && data.bill) {
+        setBill(data.bill); showToast('Order approved! Bill generated.', 'success');
+      }
+      if (data.questions?.length) appendMessage('assistant', `Clarification:\n- ${data.questions.join('\n- ')}`);
+      if (data.warnings?.length) {
+        appendMessage('assistant', `⚠️ Warnings:\n- ${data.warnings.join('\n- ')}`);
+        showToast(data.warnings[0], 'warning');
+      }
+      if (data.lowStockAlert) {
+        const la = data.lowStockAlert;
+        appendMessage('assistant', `⚠️ Low stock: ${la.medicineName} (${la.currentStock} left).`);
+        showToast(`Low stock: ${la.medicineName}`, 'warning');
+      }
+      await fetchLowStock();
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Error processing request.', 'error');
+      appendMessage('assistant', err.response?.data?.message || 'Error processing request.');
+    } finally { setLoading(false); }
   };
 
-  const handleSelectRecommendation = async (medicineName, quantity = 1) => {
-    setLoading(true);
-    setResponse(null);
-    setBill(null);
-    setRecommendations(null);
-
+  // ── AI Inventory Agent ───────────────────────────────────────────────────
+  const handleAgentQuery = async (e) => {
+    e.preventDefault();
+    const input = agentQuery.trim();
+    if (!input) return;
+    setAgentHistory((prev) => [...prev, { id: Date.now(), role: 'user', text: input, timestamp: new Date().toISOString() }]);
+    setAgentQuery('');
+    setAgentProcessing(true);
     try {
-      const res = await orderAPI.processChat({
-        message: `Give ${quantity} ${medicineName}`,
-        patientId: selectedPatient._id,
-      });
-
-      setResponse(res.data);
-      if (res.data.status === 'APPROVED') {
-        setBill(res.data.bill);
-      }
-      fetchLowStock();
-    } catch (error) {
-      setResponse({
-        success: false,
-        message: error.response?.data?.message || 'Error processing order',
-        status: 'ERROR',
-      });
-    } finally {
-      setLoading(false);
-    }
+      const res = await inventoryAgentAPI.processCommand(input);
+      const data = res.data;
+      setAgentHistory((prev) => [...prev, {
+        id: Date.now() + 1, role: 'agent', text: data.message, success: data.success,
+        details: data.success ? { old: data.oldStock, new: data.newStock } : null,
+        timestamp: new Date().toISOString(),
+      }]);
+      if (data.success) { showToast(data.message, data.isLowStock ? 'warning' : 'success'); fetchAllMedicines(); fetchLowStock(); }
+      else showToast(data.message, 'error');
+    } catch (err) {
+      setAgentHistory((prev) => [...prev, { id: Date.now() + 1, role: 'agent', text: err.response?.data?.message || 'Failed to process command.', success: false, timestamp: new Date().toISOString() }]);
+      showToast('Inventory agent error.', 'error');
+    } finally { setAgentProcessing(false); }
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const handlePrint = () => window.print();
+  const filteredMedicines = medicines.filter((m) => m.name.toLowerCase().includes(inventorySearch.toLowerCase()));
 
+  // ─── Render ──────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-          <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
-            <span className="text-4xl">🏥</span>
-            AI Pharmacy - Pharmacist Dashboard
-          </h1>
-          <p className="text-gray-600 mt-2">Powered by Intelligent AI Agents</p>
-        </div>
+    <div className="flex-1 min-h-0 bg-[#eef5ff] p-3 md:p-4 overflow-hidden">
+      <div className="mx-auto max-w-7xl h-full rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-lg">
+        <div className="h-full grid grid-cols-1 lg:grid-cols-[280px_1fr]">
 
-        {/* Low Stock Alerts */}
-        {lowStockAlerts.length > 0 && (
-          <div className="alert alert-warning mb-6 flex items-start gap-3">
-            <span className="text-2xl">⚠️</span>
-            <div>
-              <p className="font-semibold">Low Stock Alert!</p>
-              <p className="text-sm">
-                {lowStockAlerts.map((med, i) => (
-                  <span key={med._id}>
-                    {med.name} ({med.stockQty} left)
-                    {i < lowStockAlerts.length - 1 && ', '}
-                  </span>
-                ))}
-              </p>
+          {/* ── SIDEBAR ── */}
+          <aside className="h-full border-r border-slate-200 bg-slate-50 flex flex-col gap-3 overflow-y-auto hide-scrollbar p-4">
+            {/* Brand */}
+            <div className="rounded-xl bg-gradient-to-br from-primary-600 to-primary-800 text-white p-4">
+              <p className="text-xs uppercase tracking-widest text-primary-200">PharmaBooks</p>
+              <h1 className="text-xl font-bold mt-1">Patient Console</h1>
+              <p className="text-xs text-primary-200 mt-1 leading-relaxed">Load patient by phone, then describe symptoms.</p>
+              <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
+                AI-powered workflow
+              </div>
             </div>
-          </div>
-        )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - Patient Management */}
-          <div className="lg:col-span-1 space-y-6">
-            {/* Register Patient */}
-            <div className="card">
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <span>👤</span> Patient Management
-              </h2>
-              
-              {!showPatientForm ? (
-                <button
-                  onClick={() => setShowPatientForm(true)}
-                  className="btn-primary w-full mb-4"
-                >
-                  + Register New Patient
+            {/* Phone search */}
+            <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Find Patient</label>
+              <div className="flex gap-2">
+                <input type="tel" value={searchPhone}
+                  onChange={(e) => setSearchPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  className="input-field text-sm" placeholder="10-digit number" maxLength={10} />
+                <button type="button" onClick={handleLoadPatient} className="btn-primary whitespace-nowrap" disabled={loading}>
+                  Load
                 </button>
-              ) : (
-                <form onSubmit={handleRegisterPatient} className="space-y-3 mb-4">
-                  <input
-                    type="text"
-                    placeholder="Patient Name"
-                    className="input-field"
-                    value={patientForm.name}
-                    onChange={(e) => setPatientForm({ ...patientForm, name: e.target.value })}
-                    required
-                  />
-                  <input
-                    type="tel"
-                    placeholder="Phone Number (10 digits)"
-                    className="input-field"
-                    value={patientForm.phone}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, '').slice(0, 10);
-                      setPatientForm({ ...patientForm, phone: value });
-                    }}
-                    pattern="[789][0-9]{9}"
-                    maxLength="10"
-                    title="Enter 10-digit phone number starting with 7, 8, or 9"
-                    required
-                  />
-                  <input
-                    type="number"
-                    placeholder="Age"
-                    className="input-field"
-                    value={patientForm.age}
-                    onChange={(e) => setPatientForm({ ...patientForm, age: e.target.value })}
-                    required
-                  />
-                  <div className="flex gap-2">
-                    <button type="submit" className="btn-primary flex-1">
-                      Register
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowPatientForm(false)}
-                      className="btn-secondary"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* Search Patient */}
-              <div className="border-t pt-4">
-                <label className="block text-sm font-semibold mb-2">Search Patient</label>
-                <div className="flex gap-2">
-                  <input
-                    type="tel"
-                    placeholder="Phone Number (10 digits)"
-                    className="input-field"
-                    value={searchPhone}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, '').slice(0, 10);
-                      setSearchPhone(value);
-                    }}
-                    pattern="[789][0-9]{9}"
-                    maxLength="10"
-                    title="Enter 10-digit phone number starting with 7, 8, or 9"
-                  />
-                  <button onClick={handleSearchPatient} className="btn-primary">
-                    🔍
-                  </button>
-                </div>
               </div>
+            </div>
 
-              {/* Selected Patient */}
-              {selectedPatient && (
-                <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-                  <div className="flex justify-between items-start mb-2">
-                    <div>
-                      <p className="font-semibold text-green-800">Selected Patient:</p>
-                      <p className="text-sm text-green-700">{selectedPatient.name}</p>
-                      <p className="text-xs text-green-600">
-                        {selectedPatient.phone} • {selectedPatient.age} years
-                      </p>
-                    </div>
+            {/* Active Patient (loaded in chat) */}
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Loaded in Chat</p>
+              {selectedPatient ? (
+                <div className="flex items-center gap-3">
+                  <Avatar name={selectedPatient.name} size="md" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-slate-900 truncate">{selectedPatient.name}</p>
+                    <p className="text-xs text-slate-500">{selectedPatient.phone} · {selectedPatient.age}y</p>
+                    <button
+                      onClick={() => { setActiveTab('patients'); }}
+                      className="text-xs text-primary-600 hover:underline mt-0.5"
+                    >
+                      View history →
+                    </button>
                   </div>
-                  <button
-                    onClick={() => loadPatientHistory(selectedPatient._id)}
-                    className="btn-secondary text-xs w-full mt-2"
-                  >
-                    📜 Load Medication History
-                  </button>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-sm text-slate-400 italic">No patient loaded in chat</p>
+                  <p className="text-xs text-slate-400 mt-1">Use the 👥 Patients tab to browse and load a patient.</p>
                 </div>
               )}
             </div>
 
-            {/* Patient Medication History */}
-            {selectedPatient && showHistory && patientHistory.length === 0 && (
-              <div className="card">
-                <div className="text-center p-6">
-                  <p className="text-gray-500 text-sm">📋 No medication history found</p>
-                  <p className="text-gray-400 text-xs mt-1">This patient has no approved orders yet</p>
-                </div>
+            {/* Register patient */}
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Register Patient</p>
+                <button type="button"
+                  className="text-xs font-semibold text-primary-600 hover:text-primary-800"
+                  onClick={() => setShowRegisterForm((p) => !p)}>
+                  {showRegisterForm ? '✕ Close' : '+ New'}
+                </button>
               </div>
-            )}
+              {showRegisterForm ? (
+                <form onSubmit={handleRegisterPatient} className="space-y-2">
+                  <input type="text" className="input-field text-sm" placeholder="Patient name"
+                    value={patientForm.name} onChange={(e) => setPatientForm((p) => ({ ...p, name: e.target.value }))} required />
+                  <input type="tel" className="input-field text-sm" placeholder="10-digit phone"
+                    value={patientForm.phone}
+                    onChange={(e) => setPatientForm((p) => ({ ...p, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
+                    maxLength={10} required />
+                  <input type="number" className="input-field text-sm" placeholder="Age" min={0}
+                    value={patientForm.age} onChange={(e) => setPatientForm((p) => ({ ...p, age: e.target.value }))} required />
+                  <button type="submit" className="btn-primary w-full text-sm" disabled={registeringPatient}>
+                    {registeringPatient ? 'Registering…' : 'Register Patient'}
+                  </button>
+                </form>
+              ) : (
+                <p className="text-xs text-slate-400">Add a new patient profile to the system.</p>
+              )}
+            </div>
 
-            {selectedPatient && patientHistory.length > 0 && (
-              <div className="card">
-                <h3 className="font-bold mb-3 flex items-center gap-2">
-                  <span>📜</span> Medication History
-                </h3>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {patientHistory.map((order, idx) => (
-                    <div key={idx} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <p className="font-medium text-sm text-gray-800">
-                            {order.medicines?.map(m => m.name).join(', ') || 'N/A'}
-                          </p>
-                          {order.medicines?.map((med, i) => (
-                            <p key={i} className="text-xs text-gray-600 mt-1">
-                              💊 {med.quantity} units
-                              {med.dosageDuration && med.dosageDuration !== 'Not specified' && ` • ${med.dosageDuration}`}
-                              {med.totalDaysSupply > 0 && ` • ${med.totalDaysSupply} days`}
-                            </p>
-                          ))}
-                        </div>
-                        <div className="text-right ml-2">
-                          <p className="text-xs text-gray-500">
-                            {new Date(order.date).toLocaleDateString()}
-                          </p>
-                          <p className="text-xs font-semibold text-green-700 mt-1">
-                            ₹{order.totalAmount}
-                          </p>
-                        </div>
-                      </div>
+            {/* Low stock alerts */}
+            {lowStockAlerts.length > 0 && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs font-bold uppercase tracking-wide text-amber-700 mb-2">
+                  ⚠️ Low Stock ({lowStockAlerts.length})
+                </p>
+                <div className="space-y-1">
+                  {lowStockAlerts.slice(0, 5).map((med) => (
+                    <div key={med._id} className="flex items-center justify-between text-xs">
+                      <span className="text-amber-900 font-medium">{med.name}</span>
+                      <span className="bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">{med.stockQty}</span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
+          </aside>
 
-            {/* Recent Patients */}
-            <div className="card">
-              <h3 className="font-bold mb-3">Recent Patients</h3>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {patients.slice(0, 10).map((patient) => (
-                  <button
-                    key={patient._id}
-                    onClick={() => {
-                      setSelectedPatient(patient);
-                      setSearchPhone(patient.phone);
-                      setShowHistory(false);
-                      setPatientHistory([]);
-                    }}
-                    className="w-full text-left p-3 hover:bg-gray-50 rounded-lg border border-gray-200 transition-colors"
-                  >
-                    <p className="font-medium text-sm">{patient.name}</p>
-                    <p className="text-xs text-gray-600">{patient.phone}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column - Chat Interface */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Chat Box */}
-            <div className="card">
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <span>🤖</span> AI Order Assistant
-              </h2>
-              
-              <form onSubmit={handleSendMessage} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold mb-2">
-                    Describe symptoms or request medicine:
-                  </label>
-                  <textarea
-                    className="input-field resize-none"
-                    rows="4"
-                    placeholder="Type your request here..."
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    disabled={!selectedPatient || loading}
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="btn-primary w-full"
-                  disabled={!selectedPatient || loading || !message.trim()}
-                >
-                  {loading ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      Processing...
-                    </span>
-                  ) : (
-                    '🚀 Submit Request'
-                  )}
+          {/* ── MAIN AREA ── */}
+          <main className="h-full flex flex-col min-h-0">
+            {/* Top tab bar */}
+            <div className="border-b border-slate-200 bg-white px-4 py-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <button onClick={() => setActiveTab('chat')} className={`tab-btn ${activeTab === 'chat' ? 'tab-btn-active' : 'tab-btn-inactive'}`}>
+                  💬 Chat
                 </button>
-              </form>
-
-              {/* Response */}
-              {response && (
-                <div className="mt-6 p-4 rounded-lg border-2 bg-white">
-                  <div className={`p-3 rounded-lg ${
-                    response.status === 'APPROVED' ? 'bg-green-50 border border-green-200' : 
-                    response.status === 'PRESCRIPTION_REQUIRED' ? 'bg-red-50 border border-red-200' :
-                    response.status === 'CLARIFICATION_NEEDED' ? 'bg-blue-50 border border-blue-200' :
-                    response.status === 'RECOMMENDATION_NEEDED' ? 'bg-purple-50 border border-purple-200' :
-                    response.status === 'REJECTED' ? 'bg-red-50 border border-red-200' :
-                    'bg-gray-50 border border-gray-200'
-                  }`}>
-                    <p className="font-bold text-sm flex items-center gap-2 mb-1">{
-                      response.status === 'APPROVED' ? '✅ Order Approved' : 
-                      response.status === 'PRESCRIPTION_REQUIRED' ? '🔒 Prescription Required' :
-                      response.status === 'CLARIFICATION_NEEDED' ? '❓ Need More Info' :
-                      response.status === 'RECOMMENDATION_NEEDED' ? '💡 Recommendations' : 
-                      response.status === 'REJECTED' ? '❌ Order Rejected' :
-                      '⚠️ Alert'
-                    }</p>
-                    <p className="text-sm text-gray-700">{response.message}</p>
-                  </div>
-
-                  {/* Order Details for Approved */}
-                  {response.status === 'APPROVED' && response.order && (
-                    <div className="mt-3 space-y-2">
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div>
-                          <p className="text-gray-600">Medicine:</p>
-                          <p className="font-semibold">{response.order.medicine}</p>
-                        </div>
-                        <div>
-                          <p className="text-gray-600">Quantity:</p>
-                          <p className="font-semibold">{response.order.quantity} units</p>
-                        </div>
-                        {response.order.dosageDuration && (
-                          <div className="col-span-2">
-                            <p className="text-gray-600">💊 Dosage:</p>
-                            <p className="font-semibold text-blue-700">{response.order.dosageDuration}</p>
-                          </div>
-                        )}
-                        {response.order.totalDaysSupply > 0 && (
-                          <div>
-                            <p className="text-gray-600">📅 Duration:</p>
-                            <p className="font-semibold">{response.order.totalDaysSupply} days</p>
-                          </div>
-                        )}
-                        <div>
-                          <p className="text-gray-600">Total:</p>
-                          <p className="font-bold text-green-700">₹{response.order.totalAmount}</p>
-                        </div>
-                      </div>
-
-                      {/* Age Consideration */}
-                      {response.ageConsideration && (
-                        <p className="text-xs bg-blue-50 p-2 rounded border border-blue-200">
-                          👤 {response.ageConsideration}
-                        </p>
-                      )}
-
-                      {/* Warnings */}
-                      {response.warnings && response.warnings.length > 0 && (
-                        <div className="bg-yellow-50 p-2 rounded border border-yellow-200">
-                          <p className="font-semibold text-yellow-800 text-xs mb-1">⚠️ Warnings:</p>
-                          <ul className="text-xs text-yellow-700 list-disc list-inside space-y-1">
-                            {response.warnings.map((warning, index) => (
-                              <li key={index}>{warning}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Prescription Required */}
-                  {response.status === 'PRESCRIPTION_REQUIRED' && response.medicine && (
-                    <div className="mt-3 text-sm">
-                      <p className="text-red-700"><strong>Medicine:</strong> {response.medicine}</p>
-                      {response.warnings && response.warnings.length > 0 && (
-                        <ul className="text-xs text-red-600 list-disc list-inside mt-2 space-y-1">
-                          {response.warnings.map((warning, index) => (
-                            <li key={index}>{warning}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Clarification Needed */}
-                  {response.status === 'CLARIFICATION_NEEDED' && response.questions && (
-                    <ul className="text-sm text-blue-700 list-disc list-inside space-y-1 mt-3">
-                      {response.questions.map((question, index) => (
-                        <li key={index}>{question}</li>
-                      ))}
-                    </ul>
-                  )}
-
-                  {/* Low Stock Alert */}
-                  {response.lowStockAlert && (
-                    <div className="mt-3 p-2 bg-yellow-50 rounded border border-yellow-300">
-                      <p className="font-semibold text-yellow-800 text-xs">⚠️ Low Stock: {response.lowStockAlert.medicineName}</p>
-                      <p className="text-xs text-yellow-700">
-                        {response.lowStockAlert.currentStock} remaining • Refill: {response.lowStockAlert.recommendedRefillQty}
-                      </p>
-                    </div>
-                  )}
+                <button onClick={() => setActiveTab('patients')} className={`tab-btn ${activeTab === 'patients' ? 'tab-btn-active' : 'tab-btn-inactive'}`}>
+                  👥 Patients
+                  <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${activeTab === 'patients' ? 'bg-white/30 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                    {patients.length}
+                  </span>
+                </button>
+                <button onClick={() => setActiveTab('inventory')} className={`tab-btn ${activeTab === 'inventory' ? 'tab-btn-active' : 'tab-btn-inactive'}`}>
+                  📦 Inventory
+                </button>
+              </div>
+              {selectedPatient && activeTab === 'chat' && (
+                <div className="hidden md:flex items-center gap-2 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-xs font-medium text-emerald-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  {selectedPatient.name} · {selectedPatient.phone}
                 </div>
               )}
+            </div>
 
-              {/* Recommendations */}
-              {recommendations && (
-                <div className="mt-6 card bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200">
-                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                    <span>🎯</span> AI Recommendations for {selectedPatient?.name} (Age: {selectedPatient?.age})
-                  </h3>
-                  
-                  {/* Primary Recommendation */}
-                  {recommendations.primaryRecommendation && (
-                    <div className="bg-white rounded-lg p-4 mb-4 border-2 border-green-300 shadow-md">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <p className="text-sm font-bold text-green-700 mb-1">✨ BEST MATCH</p>
-                          <p className="text-xl font-bold text-gray-800 mb-2">
-                            {recommendations.primaryRecommendation.medicineName}
-                          </p>
-                          <p className="text-sm text-gray-700 mb-2">
-                            <strong>Why:</strong> {recommendations.primaryRecommendation.reason}
-                          </p>
-                          <p className="text-sm text-blue-700 mb-3">
-                            <strong>Dosage Advice:</strong> {recommendations.primaryRecommendation.dosageAdvice}
-                          </p>
+            {/* ── CHAT TAB ── */}
+            {activeTab === 'chat' && (
+              <>
+                <div className="flex-1 overflow-y-auto hide-scrollbar bg-[#f4f8ff] p-4 space-y-3">
+                  {chatMessages.map((item) => (
+                    <div key={item.id} className={`flex ${item.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[85%] rounded-2xl px-4 py-3 whitespace-pre-line text-sm leading-relaxed shadow-sm ${
+                        item.role === 'user'
+                          ? 'bg-primary-700 text-white rounded-br-md'
+                          : 'bg-white border border-slate-200 text-slate-800 rounded-bl-md'
+                      }`}>
+                        <p>{item.text}</p>
+                        <p className={`text-[11px] mt-1.5 ${item.role === 'user' ? 'text-primary-200' : 'text-slate-400'}`}>
+                          {formatTime(item.timestamp)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+
+                  {loading && (
+                    <div className="flex justify-start">
+                      <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
+                        <div className="dot-blink flex gap-1 items-center"><span /><span /><span /></div>
+                      </div>
+                    </div>
+                  )}
+
+                  {recommendations && (
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <p className="font-bold text-slate-900 mb-3 flex items-center gap-2">🤖 AI Recommendations</p>
+                      {recommendations.primaryRecommendation && (
+                        <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-3 mb-3">
+                          <p className="text-xs font-bold text-emerald-600 uppercase tracking-wide mb-1">Best Match</p>
+                          <p className="text-base font-bold text-slate-900">{recommendations.primaryRecommendation.medicineName}</p>
+                          <p className="text-sm text-slate-600 mt-1">{recommendations.primaryRecommendation.reason}</p>
+                          <button className="btn-primary mt-3 text-sm"
+                            onClick={() => handleSelectRecommendation(recommendations.primaryRecommendation.medicineName, 1)} disabled={loading}>
+                            ✓ Select This
+                          </button>
+                        </div>
+                      )}
+                      {recommendations.alternatives?.length > 0 && (
+                        <div className="space-y-2">
+                          {recommendations.alternatives.map((alt, i) => (
+                            <div key={i} className="rounded-xl border border-slate-200 p-3 flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-900">{alt.medicineName}</p>
+                                <p className="text-xs text-slate-500">{alt.reason}</p>
+                              </div>
+                              <button className="btn-secondary text-sm"
+                                onClick={() => handleSelectRecommendation(alt.medicineName, 1)} disabled={loading}>Select</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {bill && (
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm print-area">
+                      <div className="flex items-center justify-between mb-3 no-print">
+                        <p className="font-bold text-slate-900">🧾 Bill Generated</p>
+                        <button onClick={handlePrint} className="btn-secondary text-sm">Print</button>
+                      </div>
+                      <div className="text-sm text-slate-700 space-y-1 mb-3">
+                        <p><strong>Bill No:</strong> {bill.billNumber}</p>
+                        <p><strong>Patient:</strong> {bill.patient?.name}</p>
+                        <p><strong>Date:</strong> {bill.date} {bill.time}</p>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead className="bg-slate-100">
+                            <tr>
+                              <th className="px-3 py-2 text-left">Medicine</th>
+                              <th className="px-3 py-2 text-center">Qty</th>
+                              <th className="px-3 py-2 text-right">Subtotal</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {bill.items?.map((item, i) => (
+                              <tr key={i} className="border-t border-slate-200">
+                                <td className="px-3 py-2">{item.medicineName}</td>
+                                <td className="px-3 py-2 text-center">{item.quantity}</td>
+                                <td className="px-3 py-2 text-right">{toCurrency(item.subtotal)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="mt-3 text-right font-bold text-slate-900">Total: {toCurrency(bill.totalAmount)}</div>
+                    </div>
+                  )}
+                  <div ref={messageEndRef} />
+                </div>
+
+                <form onSubmit={handleSendMessage} className="border-t border-slate-200 bg-white p-3 md:p-4">
+                  <div className="flex gap-3 items-end">
+                    <textarea rows={2} value={message} onChange={(e) => setMessage(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); } }}
+                      className="input-field resize-none text-sm"
+                      placeholder="Describe symptoms or ask for medicines… (Enter to send)" disabled={loading} />
+                    <button type="submit" className="btn-primary px-6 h-[44px]" disabled={loading || !message.trim()}>Send</button>
+                  </div>
+                </form>
+              </>
+            )}
+
+            {/* ── PATIENTS TAB ── */}
+            {activeTab === 'patients' && (
+              <PatientsTab
+                patients={patients}
+                loadingPatients={patientsLoading}
+                onLoadToChat={handleLoadPatientToChat}
+                onRefresh={fetchPatients}
+              />
+            )}
+
+            {/* ── INVENTORY TAB ── */}
+            {activeTab === 'inventory' && (
+              <div className="flex-1 overflow-y-auto hide-scrollbar p-5 space-y-6">
+                {/* AI Inventory Agent */}
+                <div className="rounded-2xl border-2 border-primary-100 bg-gradient-to-br from-primary-50 to-blue-50 p-5">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-xl bg-primary-600 text-white flex items-center justify-center text-xl">🤖</div>
+                    <div>
+                      <h2 className="text-base font-bold text-slate-900">AI Inventory Agent</h2>
+                      <p className="text-xs text-slate-500">Type natural language — e.g. "add 20 paracetamol to stock"</p>
+                    </div>
+                  </div>
+                  <div className="bg-white rounded-xl border border-slate-200 p-3 mb-3 min-h-[100px] max-h-56 overflow-y-auto hide-scrollbar space-y-2">
+                    {agentHistory.length === 0 && (
+                      <div className="flex items-center justify-center h-full text-slate-400 text-sm italic py-4">
+                        Try: "add 50 paracetamol", "set ibuprofen to 100"
+                      </div>
+                    )}
+                    {agentHistory.map((msg) => (
+                      <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${
+                          msg.role === 'user' ? 'bg-primary-700 text-white rounded-br-sm'
+                            : msg.success === false ? 'bg-red-50 border border-red-200 text-red-800 rounded-bl-sm'
+                            : 'bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-bl-sm'
+                        }`}>
+                          <p>{msg.text}</p>
+                          {msg.details && (
+                            <div className="mt-1 pt-1 border-t border-emerald-200 text-xs font-mono flex gap-2">
+                              <span>Before: {msg.details.old}</span>
+                              <span>→</span>
+                              <span className="font-bold">After: {msg.details.new}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleSelectRecommendation(recommendations.primaryRecommendation.medicineName, 1)}
-                        className="btn-primary w-full"
-                        disabled={loading}
-                      >
-                        ✅ Select This Medicine
+                    ))}
+                    {agentProcessing && (
+                      <div className="flex justify-start">
+                        <div className="bg-white border border-slate-200 rounded-xl px-3 py-2">
+                          <div className="dot-blink flex gap-1 items-center"><span /><span /><span /></div>
+                        </div>
+                      </div>
+                    )}
+                    <div ref={agentEndRef} />
+                  </div>
+                  <form onSubmit={handleAgentQuery} className="flex gap-2">
+                    <input type="text" value={agentQuery} onChange={(e) => setAgentQuery(e.target.value)}
+                      className="input-field text-sm" placeholder='e.g. "add 30 amoxicillin in stock"' disabled={agentProcessing} />
+                    <button type="submit" className="btn-primary whitespace-nowrap" disabled={agentProcessing || !agentQuery.trim()}>
+                      {agentProcessing ? '⏳' : 'Run'}
+                    </button>
+                  </form>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {['add 20  in stock', 'set  to 100', 'remove 5 '].map((s) => (
+                      <button key={s} type="button"
+                        className="text-xs bg-white border border-slate-200 text-slate-600 px-3 py-1 rounded-full hover:bg-primary-50 hover:border-primary-200 hover:text-primary-700 transition-colors"
+                        onClick={() => setAgentQuery(s)}>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Medicine Table */}
+                <div>
+                  <div className="flex items-center justify-between mb-3 gap-3">
+                    <h2 className="text-base font-bold text-slate-900">
+                      Medicine Inventory
+                      <span className="ml-2 text-sm font-normal text-slate-500">({filteredMedicines.length})</span>
+                    </h2>
+                    <div className="flex gap-2">
+                      <input type="text" placeholder="Search…" value={inventorySearch}
+                        onChange={(e) => setInventorySearch(e.target.value)} className="input-field text-sm w-40" />
+                      <button type="button" onClick={fetchAllMedicines} className="btn-secondary text-sm" disabled={inventoryLoading}>
+                        {inventoryLoading ? '…' : '↻'}
                       </button>
                     </div>
-                  )}
-
-                  {/* Alternative Options */}
-                  {recommendations.alternatives && recommendations.alternatives.length > 0 && (
-                    <div className="mb-4">
-                      <p className="text-sm font-semibold mb-2">Other Options:</p>
-                      <div className="space-y-2">
-                        {recommendations.alternatives.map((alt, index) => (
-                          <div key={index} className="bg-white rounded-lg p-3 border border-gray-200">
-                            <div className="flex justify-between items-center">
-                              <div className="flex-1">
-                                <p className="font-semibold text-gray-800">{alt.medicineName}</p>
-                                <p className="text-xs text-gray-600">{alt.reason}</p>
-                              </div>
-                              <button
-                                onClick={() => handleSelectRecommendation(alt.medicineName, 1)}
-                                className="btn-secondary text-sm px-3 py-1"
-                                disabled={loading}
-                              >
-                                Select
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Warnings */}
-                  {recommendations.warnings && recommendations.warnings.length > 0 && (
-                    <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded">
-                      <p className="text-sm font-semibold text-yellow-800 mb-1">⚠️ Important Notes:</p>
-                      <ul className="text-xs text-yellow-700 list-disc list-inside space-y-1">
-                        {recommendations.warnings.map((warning, index) => (
-                          <li key={index}>{warning}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {recommendations.needsPrescription && (
-                    <p className="text-xs text-red-600 mt-3 font-semibold">
-                      📋 Prescription Required - Please ensure patient has valid prescription
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Bill Display */}
-            {bill && (
-              <div className="card print-area">
-                <div className="flex justify-between items-center mb-4 no-print">
-                  <h2 className="text-xl font-bold">📄 Bill</h2>
-                  <button onClick={handlePrint} className="btn-primary">
-                    🖨️ Print Bill
-                  </button>
-                </div>
-
-                <div className="border-2 border-gray-300 rounded-lg p-6">
-                  {/* Bill Header */}
-                  <div className="text-center mb-6">
-                    <h3 className="text-2xl font-bold text-primary-600">{bill.pharmacy.name}</h3>
-                    <p className="text-sm text-gray-600">{bill.pharmacy.address}</p>
-                    <p className="text-sm text-gray-600">📞 {bill.pharmacy.phone}</p>
                   </div>
-
-                  {/* Bill Info */}
-                  <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
-                    <div>
-                      <p><strong>Bill No:</strong> {bill.billNumber}</p>
-                      <p><strong>Date:</strong> {bill.date}</p>
-                      <p><strong>Time:</strong> {bill.time}</p>
+                  {inventoryLoading ? (
+                    <div className="flex justify-center py-10"><div className="spinner" /></div>
+                  ) : (
+                    <div className="rounded-xl border border-slate-200 overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-100 text-slate-600 text-xs uppercase tracking-wide">
+                          <tr>
+                            <th className="px-4 py-3 text-left">Medicine</th>
+                            <th className="px-4 py-3 text-left">Unit</th>
+                            <th className="px-4 py-3 text-right">Price</th>
+                            <th className="px-4 py-3 text-right">Stock</th>
+                            <th className="px-4 py-3 text-center">Status</th>
+                            <th className="px-4 py-3 text-center">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredMedicines.length === 0 ? (
+                            <tr><td colSpan={6} className="text-center py-8 text-slate-400 italic">No medicines found.</td></tr>
+                          ) : filteredMedicines.map((med) => {
+                            const isLow = med.stockQty <= med.minStockThreshold;
+                            return (
+                              <tr key={med._id} className={`border-t border-slate-100 hover:bg-slate-50 ${isLow ? 'bg-amber-50/40' : ''}`}>
+                                <td className="px-4 py-3 font-semibold text-slate-900">{med.name}</td>
+                                <td className="px-4 py-3 text-slate-500 capitalize">{med.unit}</td>
+                                <td className="px-4 py-3 text-right">₹{med.price}</td>
+                                <td className={`px-4 py-3 text-right font-bold ${isLow ? 'text-red-600' : 'text-emerald-700'}`}>{med.stockQty}</td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className={`status-chip ${isLow ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                    {isLow ? '⚠️ Low' : '✓ OK'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <button onClick={() => setStockModal(med)}
+                                    className="text-xs px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors font-medium">
+                                    Update
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
-                    <div className="text-right">
-                      <p><strong>Patient:</strong> {bill.patient.name}</p>
-                      <p><strong>Phone:</strong> {bill.patient.phone}</p>
-                      <p><strong>Age:</strong> {bill.patient.age} years</p>
-                    </div>
-                  </div>
-
-                  {/* Items Table */}
-                  <table className="w-full mb-6">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="p-2 text-left">Medicine</th>
-                        <th className="p-2 text-center">Qty</th>
-                        <th className="p-2 text-right">Price</th>
-                        <th className="p-2 text-right">Subtotal</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bill.items.map((item, index) => (
-                        <tr key={index} className="border-b">
-                          <td className="p-2">{item.medicineName}</td>
-                          <td className="p-2 text-center">{item.quantity}</td>
-                          <td className="p-2 text-right">₹{item.price}</td>
-                          <td className="p-2 text-right">₹{item.subtotal}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-
-                  {/* Total */}
-                  <div className="border-t-2 border-gray-800 pt-4">
-                    <div className="flex justify-between items-center text-xl font-bold">
-                      <span>Total Amount:</span>
-                      <span className="text-primary-600">₹{bill.totalAmount}</span>
-                    </div>
-                  </div>
-
-                  {/* Footer */}
-                  <div className="mt-6 text-center text-sm text-gray-600">
-                    <p>Thank you for your visit!</p>
-                    <p className="text-xs mt-2">Powered by AI Agents</p>
-                  </div>
+                  )}
                 </div>
               </div>
             )}
-          </div>
+          </main>
         </div>
       </div>
+
+      {stockModal && (
+        <StockModal medicine={stockModal} onClose={() => setStockModal(null)}
+          onSuccess={() => { fetchAllMedicines(); fetchLowStock(); }} />
+      )}
     </div>
   );
 }
