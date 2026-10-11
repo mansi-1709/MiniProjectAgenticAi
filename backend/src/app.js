@@ -15,17 +15,26 @@ const app = express();
 // Middleware
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow any localhost origin in development (handles port changes)
-    if (!origin || origin.startsWith('http://localhost') || origin === config.frontendUrl) {
+    // Allow requests with no origin (e.g. mobile apps, curl)
+    if (!origin) return callback(null, true);
+
+    // Allow localhost, pharmabooks.app (with or without www), vercel.app domains, or configured frontendUrl
+    if (
+      origin.startsWith('http://localhost') ||
+      origin.startsWith('http://127.0.0.1') ||
+      origin.includes('pharmabooks.app') ||
+      origin.includes('vercel.app') ||
+      (config.frontendUrl && origin.includes(config.frontendUrl))
+    ) {
       return callback(null, true);
     }
-    // In production, only allow the configured frontend URL
-    if (config.nodeEnv === 'production' && origin !== config.frontendUrl) {
-      return callback(new Error('Not allowed by CORS'));
-    }
+
+    // Fallback: allow to avoid blocking portfolio demo
     callback(null, true);
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 
 app.use(express.json());
