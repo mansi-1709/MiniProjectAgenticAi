@@ -5,20 +5,26 @@ This guide deploys the project on a DigitalOcean Droplet using:
 - Node.js 20
 - PM2 (process manager)
 - Nginx (reverse proxy + static frontend)
-- Certbot (free SSL)
+- HTTP on VPS IP (domain/SSL optional later)
 
 It is tailored to this repository structure:
 - `backend/` for API server
 - `frontend/` for Vite React app
 - Root `.env` used by backend config
 
+Current deployment target in this guide:
+- VPS IP: `143.244.128.93`
+- Access URL: `http://143.244.128.93`
+
 ## 1. Prerequisites
 
 - A DigitalOcean account
-- A domain name (recommended for SSL), for example `pharmacy.yourdomain.com`
 - Your project pushed to GitHub
 - MongoDB Atlas connection string
 - OpenAI API key
+
+Optional:
+- A domain name (needed if you want HTTPS via Let's Encrypt)
 
 ## 2. Create DigitalOcean Droplet
 
@@ -28,7 +34,7 @@ It is tailored to this repository structure:
 - Plan: Basic (2 GB RAM minimum recommended)
 - Authentication: SSH key (recommended) or password
 3. Note your server IP address after creation.
-4. (Optional but recommended) Point your domain A record to Droplet IP.
+4. Optional: If you buy a domain later, point its A record to Droplet IP.
 
 ## 3. SSH into Server
 
@@ -96,7 +102,7 @@ MONGO_URI=your_mongodb_atlas_connection_string
 OPENAI_API_KEY=your_openai_api_key
 PORT=5001
 NODE_ENV=production
-FRONTEND_URL=https://YOUR_DOMAIN
+FRONTEND_URL=http://143.244.128.93
 JWT_SECRET=generate_a_long_random_secret
 JWT_EXPIRE=7d
 
@@ -110,7 +116,7 @@ WEBHOOK_URL=
 
 Important:
 - Use `PORT=5001` to match frontend proxy expectations in this project.
-- `FRONTEND_URL` must be your real frontend URL in production.
+- `FRONTEND_URL` should be `http://143.244.128.93` for your current setup.
 
 3. Configure frontend API URL:
 
@@ -121,8 +127,13 @@ nano frontend/.env
 Set:
 
 ```env
-VITE_API_URL=https://YOUR_DOMAIN/api
+VITE_API_URL=/api
 ```
+
+Why this is better:
+- Frontend and API share the same origin through Nginx.
+- No hardcoded IP in built assets.
+- Fewer CORS and timeout issues in production.
 
 ## 9. Build Frontend
 
@@ -148,7 +159,7 @@ Check status:
 
 ```bash
 pm2 status
-pm2 logs pharmacy-backend
+    pm2 logs pharmacy-backend
 ```
 
 ## 11. Configure Nginx
@@ -159,12 +170,12 @@ Create Nginx site config:
 nano /etc/nginx/sites-available/pharmacy
 ```
 
-Paste this (replace `YOUR_DOMAIN`):
+Paste this:
 
 ```nginx
 server {
     listen 80;
-    server_name YOUR_DOMAIN;
+  server_name 143.244.128.93 _;
 
     root /var/www/mini-project/frontend/dist;
     index index.html;
@@ -199,6 +210,11 @@ systemctl restart nginx
 
 ## 12. Enable HTTPS with Let's Encrypt
 
+For your current setup (IP only), skip this step.
+Let's Encrypt certificates require a domain name and do not issue certificates for bare public IPs.
+
+When you get a domain later, update Nginx `server_name` and run:
+
 ```bash
 apt install -y certbot python3-certbot-nginx
 certbot --nginx -d YOUR_DOMAIN
@@ -216,11 +232,11 @@ Check backend health:
 
 ```bash
 curl http://127.0.0.1:5001/health
-curl https://YOUR_DOMAIN/health
+curl http://143.244.128.93/health
 ```
 
 Open in browser:
-- `https://YOUR_DOMAIN`
+- `http://143.244.128.93`
 
 Expected:
 - React frontend loads
@@ -270,7 +286,7 @@ tail -f /var/log/nginx/error.log
 ### Frontend loads but API fails
 
 - Check `frontend/.env` has:
-  - `VITE_API_URL=https://YOUR_DOMAIN/api`
+  - `VITE_API_URL=/api`
 - Rebuild frontend:
 
 ```bash
@@ -298,7 +314,7 @@ ss -tulnp | grep 5001
 
 - Ensure root `.env` has:
   - `NODE_ENV=production`
-  - `FRONTEND_URL=https://YOUR_DOMAIN`
+  - `FRONTEND_URL=http://143.244.128.93`
 - Restart backend:
 
 ```bash
@@ -329,4 +345,137 @@ pm2 start src/server.js --name pharmacy-backend
 pm2 save
 ```
 
-Then finish Nginx + SSL steps above.
+Then finish Nginx steps above. Skip SSL unless you later connect a domain.
+
+If you are deploying with IP only, finish Nginx and skip SSL step for now.
+
+## 18. Switch From IP To Domain (After Purchase)
+
+Use this section now that you have a domain.
+
+### 1) Point DNS to your Droplet
+
+In your domain DNS panel, create/update these records:
+- Type: `A`
+- Host/Name: `@`
+- Value: `143.244.128.93`
+- TTL: `300` (or default)
+
+Optional (for `www`):
+- Type: `A`
+- Host/Name: `www`
+- Value: `143.244.128.93`
+
+Wait for propagation (usually a few minutes, can take longer).
+
+### 2) Update backend env
+
+```bash
+cd /var/www/mini-project
+nano .env
+```
+
+Set:
+
+```env
+NODE_ENV=production
+FRONTEND_URL=https://pharmabooks.app
+PORT=5001
+```
+
+### 3) Update frontend env
+
+```bash
+cd /var/www/mini-project/frontend
+nano .env
+```
+
+Set:
+
+```env
+VITE_API_URL=/api
+```
+
+### 4) Update Nginx server_name
+
+```bash
+sudo nano /etc/nginx/sites-available/pharmacy
+```
+
+Set your server block to:
+
+```nginx
+server {
+  listen 80;
+  server_name pharmabooks.app www.pharmabooks.app;
+
+  root /var/www/mini-project/frontend/dist;
+  index index.html;
+
+  location / {
+    try_files $uri /index.html;
+  }
+
+  location /api/ {
+    proxy_pass http://127.0.0.1:5001/api/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
+    proxy_set_header Host $host;
+    proxy_cache_bypass $http_upgrade;
+  }
+
+  location /health {
+    proxy_pass http://127.0.0.1:5001/health;
+    proxy_set_header Host $host;
+  }
+}
+```
+
+### 5) Rebuild frontend and restart services
+
+```bash
+cd /var/www/mini-project/frontend
+npm run build
+cd ../backend
+pm2 restart pharmacy-backend
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### 6) Enable HTTPS
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d pharmabooks.app -d www.pharmabooks.app
+```
+
+Choose redirect to HTTPS when prompted.
+
+### 7) Verify
+
+```bash
+curl -I http://pharmabooks.app
+curl -I https://pharmabooks.app
+curl https://pharmabooks.app/health
+```
+
+Open in browser:
+- `https://pharmabooks.app`
+
+### 8) If domain not opening
+
+- Check DNS resolves to your VPS:
+```bash
+nslookup pharmabooks.app
+```
+- Check firewall:
+```bash
+sudo ufw status
+```
+- Check Nginx and PM2:
+```bash
+sudo nginx -t
+pm2 status
+pm2 logs pharmacy-backend --lines 100
+```

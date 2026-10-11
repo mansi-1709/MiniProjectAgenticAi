@@ -9,7 +9,8 @@
     "start": "node src/server.js",
     "seed": "node src/utils/seedData.js",
     "import-medicines": "node src/utils/importMedicines.js",
-    "create-admin": "node src/utils/createAdmin.js"
+    "create-admin": "node src/utils/createAdmin.js",
+    "seed-demo": "node src/utils/seedDemoUsers.js"
   },
   "keywords": [
     "pharmacy",

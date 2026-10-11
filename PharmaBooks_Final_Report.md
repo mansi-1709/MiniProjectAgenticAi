@@ -574,4 +574,27 @@ PharmaBooks represents a practical template for the responsible deployment of Ag
 
 ---
 
+## REFERENCES
+
+Place this section after the conclusion and before the final `End of Report` marker.
+
+1. React Documentation. https://react.dev/
+2. Vite Documentation. https://vite.dev/
+3. Node.js Documentation. https://nodejs.org/en/docs
+4. Express.js Documentation. https://expressjs.com/
+5. MongoDB Atlas Documentation. https://www.mongodb.com/docs/atlas/
+6. Mongoose Documentation. https://mongoosejs.com/docs/
+7. OpenAI API Documentation. https://platform.openai.com/docs/
+8. Tailwind CSS Documentation. https://tailwindcss.com/docs
+9. Axios GitHub Repository. https://github.com/axios/axios
+10. JSON Web Token (JWT) Introduction. https://jwt.io/introduction
+11. bcryptjs GitHub Repository. https://github.com/dcodeIO/bcrypt.js/
+12. Nodemailer Documentation. https://nodemailer.com/about/
+13. PM2 Documentation. https://pm2.keymetrics.io/docs/usage/quick-start/
+14. Nginx Documentation. https://nginx.org/en/docs/
+15. Certbot Documentation. https://certbot.eff.org/docs/
+16. DigitalOcean Documentation. https://docs.digitalocean.com/
+
+---
+
 *End of Report*
