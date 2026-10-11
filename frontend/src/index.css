@@ -35,7 +35,7 @@
   }
 
   .auth-shell {
-    @apply flex-1 min-h-0 bg-gradient-to-br from-slate-100 to-blue-50 flex items-center justify-center p-4 overflow-y-auto;
+    @apply flex-1 min-h-0 bg-gradient-to-br from-slate-100 to-blue-50 flex items-start justify-center px-4 py-8 overflow-y-auto;
   }
 
   .auth-card {
